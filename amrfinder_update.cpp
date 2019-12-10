@@ -30,7 +30,6 @@
 *   Updating of AMRFinder data
 *
 * Release changes:
-*   3.2.4
 *
 */
 
@@ -54,7 +53,7 @@ using namespace Common_sp;
 #ifdef SVN_REV
   #define SOFTWARE_VER SVN_REV
 #else
-  #define SOFTWARE_VER "3.3.2"
+  #define SOFTWARE_VER "3.4.2"
 #endif
 
 string curMinor;
@@ -344,11 +343,11 @@ Requirements:\n\
     }
     
     
-    stderr << "Dowloading AMRFinder database version " << latest_version << " into " << latestDir << "\n";
+    stderr << "Downloading AMRFinder database version " << latest_version << " into " << latestDir << "\n";
     const string urlDir (URL + curMinor + "/" + latest_version + "/");
     fetchAMRFile (curl, urlDir, latestDir, "AMR.LIB");
     fetchAMRFile (curl, urlDir, latestDir, "AMRProt");
-    fetchAMRFile (curl, urlDir, latestDir, "AMRProt-point_mut.tab");
+    fetchAMRFile (curl, urlDir, latestDir, "AMRProt-mutation.tab");
     fetchAMRFile (curl, urlDir, latestDir, "AMRProt-suppress");
     fetchAMRFile (curl, urlDir, latestDir, "AMR_CDS");
     fetchAMRFile (curl, urlDir, latestDir, "database_format_version.txt");  // PD-3051 

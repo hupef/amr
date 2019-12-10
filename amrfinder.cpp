@@ -30,6 +30,17 @@
 *   AMRFinder
 *
 * Release changes:
+*   3.4.2 12/06/2019 PD-3209  alignment correction for mutations
+*                             point_mut.{hpp,cpp} -> alignment.{hpp,cpp}
+*                             dna_point_mut.cpp -> dna_mutation.cpp
+*                             AMRProt-point_mut.tab -> AMRProt-mutation.tab
+*                             protein resistance: "point_mutation" -> "mutation"
+*                             amrfinder: --point_mut_all -> --mutation_all
+*                    PD-3232  mutation detection redesign
+*                    PD-3267  mutation in a mutated context
+*   3.4.1 12/03/2019 PD-3193  AMR_DNA-*.tab: column "genesymbol" is removed
+*                             product name is fixed for point mutations
+*                             point_mut.cpp -> dna_point_mut.cpp
 *   3.3.2 11/26/2019 PD-3193  Indel mutations: partially implemented
 *                             Bug fixed: protein point mutations were reported incorrectly if there was an offset w.r.t. the reference sequence
 *                             Files AMRProt-point_mut.tab and AMR_DNA-<taxgroup>.tab: columns allele, symbol are removed
@@ -60,9 +71,9 @@ using namespace Common_sp;
 #ifdef SVN_REV
   #define SOFTWARE_VER SVN_REV
 #else
-  #define SOFTWARE_VER "3.3.2"
+  #define SOFTWARE_VER "3.4.2"
 #endif
-#define DATA_VER_MIN "2019-11-25.1"  
+#define DATA_VER_MIN "2019-12-06.1"  
 
 
 
@@ -79,7 +90,7 @@ constexpr double partial_coverage_min_def = 0.5;
   
     
 #define HELP  \
-"Identify AMR genes in proteins and/or contigs and print a report\n" \
+"Identify AMR and virulence genes in proteins and/or contigs and print a report\n" \
 "\n" \
 "DOCUMENTATION\n" \
 "    See https://github.com/ncbi/amr/wiki for full documentation\n" \
@@ -105,16 +116,17 @@ struct ThisApplication : ShellApplication
     	addKey ("ident_min", "Minimum identity for nucleotide hit (0..1). -1 means use a curated threshold if it exists and " + toString (ident_min_def) + " otherwise", "-1", 'i', "MIN_IDENT");
     	addKey ("coverage_min", "Minimum coverage of the reference protein (0..1)", toString (partial_coverage_min_def), 'c', "MIN_COV");
       addKey ("organism", "Taxonomy group. To see all possible taxonomy groups use the --list_organisms flag", "", 'O', "ORGANISM");
-      addFlag ("list_organisms", "Print the list of all possible taxonomy groups for point mutations identification and exit", 'l');
+      addFlag ("list_organisms", "Print the list of all possible taxonomy groups for mutations identification and exit", 'l');
     	addKey ("translation_table", "NCBI genetic code for translated BLAST", "11", 't', "TRANSLATION_TABLE");
     	addFlag ("plus", "Add the plus genes to the report");  // PD-2789
       addFlag ("report_common", "Report proteins common to a taxonomy group");  // PD-2756
-    	addKey ("point_mut_all", "File to report all target positions of reference point mutations", "", '\0', "POINT_MUT_ALL_FILE");
+    	addKey ("mutation_all", "File to report all target positions of reference mutations", "", '\0', "MUT_ALL_FILE");
     	addKey ("blast_bin", "Directory for BLAST. Deafult: $BLAST_BIN", "", '\0', "BLAST_DIR");
+    //addKey ("hmmer_bin" ??
     	addKey ("parm", "amr_report parameters for testing: -nosame -noblast -skip_hmm_check -bed", "", '\0', "PARM");
       addKey ("output", "Write output to OUTPUT_FILE instead of STDOUT", "", 'o', "OUTPUT_FILE");
       addFlag ("quiet", "Suppress messages to STDERR", 'q');
-      addFlag ("gpipe", "For NCBI GPipe processing: Protein identifiers in the protein FASTA file have format 'gnl|<project>|<accession>', different organism names are used");
+      addFlag ("gpipe", "NCBI GPipe processing: protein identifiers in the protein FASTA file have format 'gnl|<project>|<accession>', different organism names");
 	    version = SOFTWARE_VER;  
 	  #if 0
 	    setRequiredGroup ("protein",    "Input");
@@ -178,8 +190,8 @@ struct ThisApplication : ShellApplication
 
   StringVector db2organisms (const string &db) const
   {
-    exec ("cut -f 1 " + db + "/AMRProt-point_mut.tab | sort -u > " + tmp + ".prot_org");
-    exec ("cut -f 1 " + db + "/taxgroup.tab          | sort -u > " + tmp + ".tax_org");
+    exec ("cut -f 1 " + db + "/AMRProt-mutation.tab | sort -u > " + tmp + ".prot_org");
+    exec ("cut -f 1 " + db + "/taxgroup.tab         | sort -u > " + tmp + ".tax_org");
     exec ("cat " + tmp + ".prot_org " + tmp + ".tax_org | sort -u > " + tmp + ".org");
     LineInput f (tmp + ".org");
     return f. getVector ();
@@ -201,7 +213,7 @@ struct ThisApplication : ShellApplication
     const uint   gencode         =             arg2uint ("translation_table"); 
     const bool   add_plus        =             getFlag ("plus");
     const bool   report_common   =             getFlag ("report_common");
-    const string point_mut_all   =             getArg ("point_mut_all");  
+    const string mutation_all    =             getArg ("mutation_all");  
           string blast_bin       =             getArg ("blast_bin");
     const string parm            =             getArg ("parm");  
     const string output          = shellQuote (getArg ("output"));
@@ -358,10 +370,11 @@ struct ThisApplication : ShellApplication
         searchMode = "combined translated and protein";
       }
     }
+    ASSERT (! searchMode. empty ());
     if (emptyArg (organism))
-      includes << key2shortHelp ("organism") + " option to add point-mutation searches and suppress common proteins";
+      includes << key2shortHelp ("organism") + " option to add mutation searches and suppress common proteins";
     else
-      searchMode += " and point-mutation";
+      searchMode += " and mutation";
       
       
     if (searchMode. empty ())
@@ -435,10 +448,11 @@ struct ThisApplication : ShellApplication
 	  if (! organism1. empty ())
  	  	if (! report_common)
  	  	  suppress_common = true;
+ 	  ASSERT (! contains (organism1, ' '));
 
 
     const string qcS (qc_on ? " -qc  -verbose 1" : "");
-		const string force_cds_report (! emptyArg (dna) && ! organism1. empty () ? "-force_cds_report" : "");  // Needed for point_mut
+		const string force_cds_report (! emptyArg (dna) && ! organism1. empty () ? "-force_cds_report" : "");  // Needed for dna_mutation
 		
 								  
     findProg ("fasta_check");
@@ -468,6 +482,10 @@ struct ThisApplication : ShellApplication
   		    throw runtime_error ("Cannot remove 'gnl' from " + dna);
   		}
   		
+  		
+  		#define BLAST_FMT  "-outfmt '6 qseqid sseqid qstart qend qlen sstart send slen qseq sseq'"
+			  // length nident 
+
   		
   		// PD-2967
   		const string blastp_par ("-show_gis  -comp_based_stats 0  -evalue 1e-10  ");
@@ -510,9 +528,7 @@ struct ThisApplication : ShellApplication
   			if (blastThreadable ("blastp", logFName) && prot_threads > 1)
   			  num_threads = " -num_threads " + to_string (prot_threads);
   			th. exec (fullProg ("blastp") + " -query " + prot + " -db " + db + "/AMRProt  " 
-  			  + blastp_par + num_threads + " "
-  			  " -outfmt '6 qseqid sseqid length nident qstart qend qlen sstart send slen qseq sseq' "
-  			  "-out " + tmp + ".blastp > /dev/null 2> /dev/null", prot_threads);
+  			  + blastp_par + num_threads + " " BLAST_FMT " -out " + tmp + ".blastp > /dev/null 2> /dev/null", prot_threads);
   			  
   			stderr << "Running hmmsearch...\n";
   			string cpu;
@@ -542,15 +558,13 @@ struct ThisApplication : ShellApplication
     		  string item;
     		  while (fig. next (item))
       			th << thread (exec, fullProg ("blastx") + "  -query " + tmp + ".chunk/" + item + " -db " + db + "/AMRProt  "
-      			  + blastx_par + to_string (gencode) 
-      			  + "  -outfmt '6 qseqid sseqid length nident qstart qend qlen sstart send slen qseq sseq' "
-      			  "-out " + tmp + ".blastx_dir/" + item + " > /dev/null 2> /dev/null", string ());
+      			  + blastx_par + to_string (gencode) + " " BLAST_FMT
+      			  " -out " + tmp + ".blastx_dir/" + item + " > /dev/null 2> /dev/null", string ());
     		  blastxChunks = true;
   		  }
   		  else
     			th. exec (fullProg ("blastx") + "  -query " + dna_ + " -db " + db + "/AMRProt  "
-    			  + blastx_par + to_string (gencode) 
-    			  + "  -outfmt '6 qseqid sseqid length nident qstart qend qlen sstart send slen qseq sseq' "
+    			  + blastx_par + to_string (gencode) + " " BLAST_FMT
     			  "-out " + tmp + ".blastx > /dev/null 2> /dev/null", threadsAvailable);
   		  amr_report_blastx = "-blastx " + tmp + ".blastx  -dna_len " + tmp + ".len";
   		}
@@ -561,10 +575,10 @@ struct ThisApplication : ShellApplication
   		   )
   		{
   			findProg ("blastn");
-  			findProg ("point_mut");
+  			findProg ("dna_mutation");
   			stderr << "Running blastn...\n";
   			exec (fullProg ("blastn") + " -query " + dna_ + " -db " + db + "/AMR_DNA-" + organism1 + " -evalue 1e-20  -dust no  "
-  			  "-outfmt '6 qseqid sseqid length nident qstart qend qlen sstart send slen qseq sseq' -out " + tmp + ".blastn > " + logFName + " 2> " + logFName, logFName);
+  			  BLAST_FMT " -out " + tmp + ".blastn > " + logFName + " 2> " + logFName, logFName);
   		}
   	}
   	
@@ -578,10 +592,10 @@ struct ThisApplication : ShellApplication
 		
 
     // ".amr"
-    const string point_mut_allS (point_mut_all. empty () ? "" : ("-point_mut_all " + point_mut_all));
+    const string mutation_allS (mutation_all. empty () ? "" : ("-mutation_all " + mutation_all));
     const string coreS (add_plus ? "" : " -core");
 		exec (fullProg ("amr_report") + " -fam " + db + "/fam.tab  " + amr_report_blastp + "  " + amr_report_blastx
-		  + "  -organism " + strQuote (organism1) + "  -point_mut " + db + "/AMRProt-point_mut.tab " + point_mut_allS + " "
+		  + "  -organism " + strQuote (organism1) + "  -mutation " + db + "/AMRProt-mutation.tab " + mutation_allS + " "
 		  + force_cds_report + " -pseudo" + coreS
 		  + (ident == -1 ? string () : "  -ident_min "    + toString (ident)) 
 		  + "  -coverage_min " + toString (cov)
@@ -592,7 +606,7 @@ struct ThisApplication : ShellApplication
 		    && fileExists (db + "/AMR_DNA-" + organism1)
 		   )
 		{
-			exec (fullProg ("point_mut") + tmp + ".blastn " + db + "/AMR_DNA-" + organism1 + ".tab" + qcS + " -log " + logFName + " > " + tmp + ".amr-snp", logFName);
+			exec (fullProg ("dna_mutation") + tmp + ".blastn " + db + "/AMR_DNA-" + organism1 + ".tab" + qcS + " -log " + logFName + " > " + tmp + ".amr-snp", logFName);
 			// merging, sorting
 			exec ("tail -n +2 " + tmp + ".amr     >  " + tmp + ".mrg");
 			exec ("tail -n +2 " + tmp + ".amr-snp >> " + tmp + ".mrg");

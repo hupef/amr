@@ -47,7 +47,7 @@ COMPILE.cpp= $(CXX) $(CPPFLAGS) $(SVNREV) $(DBDIR) -c
 
 .PHONY: all clean install release
 
-BINARIES= amr_report amrfinder amrfinder_update fasta_check fasta2parts gff_check point_mut 
+BINARIES= amr_report amrfinder amrfinder_update fasta_check fasta2parts gff_check dna_mutation 
 
 all:	$(BINARIES)
 
@@ -57,9 +57,10 @@ release: clean
 
 common.o:	common.hpp common.inc
 gff.o: gff.hpp common.hpp common.inc
+alignment.o:	alignment.hpp alignment.hpp common.inc
 
-amr_report.o:	common.hpp common.inc gff.hpp
-amr_reportOBJS=amr_report.o common.o gff.o
+amr_report.o:	common.hpp common.inc gff.hpp alignment.hpp
+amr_reportOBJS=amr_report.o common.o gff.o alignment.o
 amr_report:	$(amr_reportOBJS)
 	$(CXX) -o $@ $(amr_reportOBJS)
 
@@ -88,10 +89,10 @@ gff_checkOBJS=gff_check.o common.o gff.o
 gff_check:	$(gff_checkOBJS)
 	$(CXX) -o $@ $(gff_checkOBJS)
 
-point_mut.o:	common.hpp common.inc 
-point_mutOBJS=point_mut.o common.o
-point_mut:	$(point_mutOBJS)
-	$(CXX) -o $@ $(point_mutOBJS)
+dna_mutation.o:	common.hpp common.inc alignment.hpp
+dna_mutationOBJS=dna_mutation.o common.o alignment.o
+dna_mutation:	$(dna_mutationOBJS)
+	$(CXX) -o $@ $(dna_mutationOBJS)
 
 
 clean:
